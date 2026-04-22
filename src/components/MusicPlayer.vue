@@ -1,17 +1,19 @@
 <template>
   <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
     <div 
-      class="absolute top-0 left-0 right-0 h-1 bg-gray-200 cursor-pointer"
+      class="absolute top-0 left-0 right-0 h-2 bg-gray-200 cursor-pointer group"
+      @mousedown="startSeek"
       @click="seekToPercentage"
       ref="progressContainer"
     >
       <div 
-        class="h-full bg-music-red transition-all duration-100"
-        :style="{ width: `${progressPercentage}%` }"
+        class="h-full bg-music-red transition-all"
+        :class="isSeeking ? 'duration-0' : 'duration-100'"
+        :style="{ width: `${displayProgressPercentage}%` }"
       ></div>
       <div 
-        class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-music-red rounded-full shadow-md opacity-0 hover:opacity-100 transition-opacity"
-        :style="{ left: `calc(${progressPercentage}% - 6px)` }"
+        class="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-music-red rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+        :style="{ left: `calc(${displayProgressPercentage}% - 8px)` }"
       ></div>
     </div>
 
@@ -113,8 +115,11 @@
               type="range" 
               min="0" 
               max="100" 
-              :value="progressPercentage"
-              @input="seekTo"
+              :value="displayProgressPercentage"
+              @input="onRangeInput"
+              @mousedown="onRangeMouseDown"
+              @mouseup="onRangeMouseUp"
+              @change="onRangeChange"
               class="flex-1 cursor-pointer"
             />
             <span class="text-xs text-gray-500 w-10">
@@ -171,11 +176,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
 
 const playerStore = usePlayerStore()
 const progressContainer = ref(null)
+const isSeeking = ref(false)
+const seekPercentage = ref(0)
 let simulationInterval = null
 
 const defaultCover = 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=music%20album%20cover%20default%20placeholder%20musical%20notes%20simple&image_size=square_hd'
@@ -184,6 +191,10 @@ const progressPercentage = computed(() => {
   const duration = playerStore.currentSong?.duration || 0
   if (duration === 0) return 0
   return (playerStore.currentTime / duration) * 100
+})
+
+const displayProgressPercentage = computed(() => {
+  return isSeeking.value ? seekPercentage.value : progressPercentage.value
 })
 
 const playModeTitle = computed(() => {
@@ -205,18 +216,77 @@ const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
+const setCurrentTimeByPercentage = (percentage) => {
+  const duration = playerStore.currentSong?.duration || 0
+  if (duration === 0) return
+  const clampedPercentage = Math.max(0, Math.min(100, percentage))
+  playerStore.setCurrentTime((clampedPercentage / 100) * duration)
+}
+
 const seekTo = (e) => {
   const percentage = parseFloat(e.target.value)
-  const duration = playerStore.currentSong?.duration || 0
-  playerStore.setCurrentTime((percentage / 100) * duration)
+  setCurrentTimeByPercentage(percentage)
 }
 
 const seekToPercentage = (e) => {
+  if (isSeeking.value) return
   if (!progressContainer.value) return
   const rect = progressContainer.value.getBoundingClientRect()
   const percentage = ((e.clientX - rect.left) / rect.width) * 100
-  const duration = playerStore.currentSong?.duration || 0
-  playerStore.setCurrentTime((percentage / 100) * duration)
+  setCurrentTimeByPercentage(percentage)
+}
+
+const updateSeekPosition = (clientX) => {
+  if (!progressContainer.value) return
+  const rect = progressContainer.value.getBoundingClientRect()
+  const percentage = ((clientX - rect.left) / rect.width) * 100
+  seekPercentage.value = Math.max(0, Math.min(100, percentage))
+}
+
+const startSeek = (e) => {
+  isSeeking.value = true
+  updateSeekPosition(e.clientX)
+  
+  const handleMouseMove = (moveEvent) => {
+    if (isSeeking.value) {
+      updateSeekPosition(moveEvent.clientX)
+    }
+  }
+  
+  const handleMouseUp = (upEvent) => {
+    if (isSeeking.value) {
+      setCurrentTimeByPercentage(seekPercentage.value)
+      isSeeking.value = false
+    }
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+  }
+  
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+}
+
+const onRangeInput = (e) => {
+  seekPercentage.value = parseFloat(e.target.value)
+}
+
+const onRangeMouseDown = (e) => {
+  isSeeking.value = true
+  seekPercentage.value = parseFloat(e.target.value)
+}
+
+const onRangeMouseUp = (e) => {
+  if (isSeeking.value) {
+    setCurrentTimeByPercentage(seekPercentage.value)
+    isSeeking.value = false
+  }
+}
+
+const onRangeChange = (e) => {
+  if (isSeeking.value) {
+    setCurrentTimeByPercentage(parseFloat(e.target.value))
+    isSeeking.value = false
+  }
 }
 
 const setVolume = (e) => {
@@ -225,7 +295,7 @@ const setVolume = (e) => {
 }
 
 const simulatePlayback = () => {
-  if (playerStore.isPlaying && playerStore.currentSong) {
+  if (!isSeeking.value && playerStore.isPlaying && playerStore.currentSong) {
     const newTime = playerStore.currentTime + 1
     if (newTime >= playerStore.currentSong.duration) {
       if (playerStore.playMode === 'loop') {
