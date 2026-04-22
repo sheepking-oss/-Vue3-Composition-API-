@@ -1,17 +1,19 @@
 <template>
   <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
     <div 
-      class="absolute top-0 left-0 right-0 h-1 bg-gray-200 cursor-pointer"
+      class="absolute top-0 left-0 right-0 h-2 bg-gray-200 cursor-pointer group"
+      @mousedown="startSeek"
       @click="seekToPercentage"
       ref="progressContainer"
     >
       <div 
-        class="h-full bg-music-red transition-all duration-100"
-        :style="{ width: `${progressPercentage}%` }"
+        class="h-full bg-music-red transition-all"
+        :class="isSeeking ? 'duration-0' : 'duration-100'"
+        :style="{ width: `${displayProgressPercentage}%` }"
       ></div>
       <div 
-        class="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-music-red rounded-full shadow-md opacity-0 hover:opacity-100 transition-opacity"
-        :style="{ left: `calc(${progressPercentage}% - 6px)` }"
+        class="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-music-red rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"
+        :style="{ left: `calc(${displayProgressPercentage}% - 8px)` }"
       ></div>
     </div>
 
@@ -51,19 +53,38 @@
         <div class="flex flex-col items-center space-y-1 flex-1 max-w-md hidden sm:flex">
           <div class="flex items-center space-x-4">
             <button 
-              @click="playerStore.togglePlayMode"
-              class="p-2 rounded-full hover:bg-gray-100 transition-colors"
+              @click="handlePlayModeToggle"
+              class="p-2 rounded-full hover:bg-gray-100 transition-all duration-200 relative group"
               :title="playModeTitle"
             >
-              <svg v-if="playerStore.playMode === 'sequence'" class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+              <svg 
+                v-if="playerStore.playMode === 'sequence'" 
+                class="w-5 h-5 text-gray-600"
+                fill="currentColor" 
+                viewBox="0 0 20 20"
+              >
                 <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
               </svg>
-              <svg v-else-if="playerStore.playMode === 'loop'" class="w-5 h-5 text-music-red" fill="currentColor" viewBox="0 0 20 20">
+              <svg 
+                v-else-if="playerStore.playMode === 'loop'" 
+                class="w-5 h-5 text-music-red"
+                fill="currentColor" 
+                viewBox="0 0 20 20"
+              >
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
               </svg>
-              <svg v-else class="w-5 h-5 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+              <svg 
+                v-else 
+                class="w-5 h-5 text-music-red"
+                fill="currentColor" 
+                viewBox="0 0 20 20"
+              >
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/>
               </svg>
+              
+              <span class="absolute -bottom-7 left-1/2 -translate-x-1/2 text-xs text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-gray-100 px-2 py-1 rounded">
+                {{ playModeTitle }}
+              </span>
             </button>
 
             <button 
@@ -113,8 +134,11 @@
               type="range" 
               min="0" 
               max="100" 
-              :value="progressPercentage"
-              @input="seekTo"
+              :value="displayProgressPercentage"
+              @input="onRangeInput"
+              @mousedown="onRangeMouseDown"
+              @mouseup="onRangeMouseUp"
+              @change="onRangeChange"
               class="flex-1 cursor-pointer"
             />
             <span class="text-xs text-gray-500 w-10">
@@ -123,25 +147,37 @@
           </div>
         </div>
 
-        <div class="hidden md:flex items-center space-x-3 flex-1 max-w-xs justify-end">
-          <button class="p-2 rounded-full hover:bg-gray-100 transition-colors">
-            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="hidden sm:flex items-center space-x-2 flex-1 max-w-xs justify-end">
+          <button 
+            @click="toggleMute"
+            class="p-2 rounded-full hover:bg-gray-100 transition-colors"
+            :title="isMuted ? '取消静音' : '静音'"
+          >
+            <svg v-if="isMuted || playerStore.volume === 0" class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+            </svg>
+            <svg v-else-if="playerStore.volume < 0.5" class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
+            </svg>
+            <svg v-else class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/>
             </svg>
           </button>
-          <input 
-            type="range" 
-            min="0" 
-            max="100" 
-            :value="playerStore.volume * 100"
-            @input="setVolume"
-            class="w-24 cursor-pointer"
-          />
-          <button class="p-2 rounded-full hover:bg-gray-100 transition-colors">
-            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-          </button>
+          <div class="relative group">
+            <input 
+              type="range" 
+              min="0" 
+              max="100" 
+              :value="isMuted ? 0 : playerStore.volume * 100"
+              @input="onVolumeInput"
+              @change="onVolumeChange"
+              class="w-24 cursor-pointer"
+            />
+          </div>
+          <span class="text-xs text-gray-500 w-8 text-center">
+            {{ Math.round(isMuted ? 0 : playerStore.volume * 100) }}%
+          </span>
         </div>
 
         <div class="flex sm:hidden items-center space-x-2">
@@ -171,11 +207,15 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { usePlayerStore } from '../stores/player'
 
 const playerStore = usePlayerStore()
 const progressContainer = ref(null)
+const isSeeking = ref(false)
+const seekPercentage = ref(0)
+const isMuted = ref(false)
+const previousVolume = ref(0.7)
 let simulationInterval = null
 
 const defaultCover = 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=music%20album%20cover%20default%20placeholder%20musical%20notes%20simple&image_size=square_hd'
@@ -184,6 +224,10 @@ const progressPercentage = computed(() => {
   const duration = playerStore.currentSong?.duration || 0
   if (duration === 0) return 0
   return (playerStore.currentTime / duration) * 100
+})
+
+const displayProgressPercentage = computed(() => {
+  return isSeeking.value ? seekPercentage.value : progressPercentage.value
 })
 
 const playModeTitle = computed(() => {
@@ -205,18 +249,77 @@ const formatTime = (seconds) => {
   return `${mins}:${secs.toString().padStart(2, '0')}`
 }
 
+const setCurrentTimeByPercentage = (percentage) => {
+  const duration = playerStore.currentSong?.duration || 0
+  if (duration === 0) return
+  const clampedPercentage = Math.max(0, Math.min(100, percentage))
+  playerStore.setCurrentTime((clampedPercentage / 100) * duration)
+}
+
 const seekTo = (e) => {
   const percentage = parseFloat(e.target.value)
-  const duration = playerStore.currentSong?.duration || 0
-  playerStore.setCurrentTime((percentage / 100) * duration)
+  setCurrentTimeByPercentage(percentage)
 }
 
 const seekToPercentage = (e) => {
+  if (isSeeking.value) return
   if (!progressContainer.value) return
   const rect = progressContainer.value.getBoundingClientRect()
   const percentage = ((e.clientX - rect.left) / rect.width) * 100
-  const duration = playerStore.currentSong?.duration || 0
-  playerStore.setCurrentTime((percentage / 100) * duration)
+  setCurrentTimeByPercentage(percentage)
+}
+
+const updateSeekPosition = (clientX) => {
+  if (!progressContainer.value) return
+  const rect = progressContainer.value.getBoundingClientRect()
+  const percentage = ((clientX - rect.left) / rect.width) * 100
+  seekPercentage.value = Math.max(0, Math.min(100, percentage))
+}
+
+const startSeek = (e) => {
+  isSeeking.value = true
+  updateSeekPosition(e.clientX)
+  
+  const handleMouseMove = (moveEvent) => {
+    if (isSeeking.value) {
+      updateSeekPosition(moveEvent.clientX)
+    }
+  }
+  
+  const handleMouseUp = (upEvent) => {
+    if (isSeeking.value) {
+      setCurrentTimeByPercentage(seekPercentage.value)
+      isSeeking.value = false
+    }
+    document.removeEventListener('mousemove', handleMouseMove)
+    document.removeEventListener('mouseup', handleMouseUp)
+  }
+  
+  document.addEventListener('mousemove', handleMouseMove)
+  document.addEventListener('mouseup', handleMouseUp)
+}
+
+const onRangeInput = (e) => {
+  seekPercentage.value = parseFloat(e.target.value)
+}
+
+const onRangeMouseDown = (e) => {
+  isSeeking.value = true
+  seekPercentage.value = parseFloat(e.target.value)
+}
+
+const onRangeMouseUp = (e) => {
+  if (isSeeking.value) {
+    setCurrentTimeByPercentage(seekPercentage.value)
+    isSeeking.value = false
+  }
+}
+
+const onRangeChange = (e) => {
+  if (isSeeking.value) {
+    setCurrentTimeByPercentage(parseFloat(e.target.value))
+    isSeeking.value = false
+  }
 }
 
 const setVolume = (e) => {
@@ -224,8 +327,40 @@ const setVolume = (e) => {
   playerStore.setVolume(percentage / 100)
 }
 
+const toggleMute = () => {
+  if (isMuted.value) {
+    playerStore.setVolume(previousVolume.value)
+    isMuted.value = false
+  } else {
+    previousVolume.value = playerStore.volume
+    playerStore.setVolume(0)
+    isMuted.value = true
+  }
+}
+
+const onVolumeInput = (e) => {
+  const percentage = parseFloat(e.target.value)
+  playerStore.setVolume(percentage / 100)
+  if (percentage > 0 && isMuted.value) {
+    isMuted.value = false
+  }
+}
+
+const onVolumeChange = (e) => {
+  const percentage = parseFloat(e.target.value)
+  playerStore.setVolume(percentage / 100)
+  if (percentage > 0) {
+    isMuted.value = false
+    previousVolume.value = percentage / 100
+  }
+}
+
+const handlePlayModeToggle = () => {
+  playerStore.togglePlayMode()
+}
+
 const simulatePlayback = () => {
-  if (playerStore.isPlaying && playerStore.currentSong) {
+  if (!isSeeking.value && playerStore.isPlaying && playerStore.currentSong) {
     const newTime = playerStore.currentTime + 1
     if (newTime >= playerStore.currentSong.duration) {
       if (playerStore.playMode === 'loop') {
